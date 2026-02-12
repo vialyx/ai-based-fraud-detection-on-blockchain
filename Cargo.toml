@@ -1,0 +1,95 @@
+[package]
+name = "fraud-detector"
+version = "0.1.0"
+edition = "2021"
+authors = ["Maksim Vialykh"]
+license = "MIT"
+
+[workspace]
+members = [
+    ".",
+    "crates/common",
+    "crates/indexer",
+    "crates/features",
+    "crates/scorer",
+    "crates/alerts",
+    "crates/api",
+    "crates/storage",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Maksim Vialykh"]
+license = "MIT"
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+futures = "0.3"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Error handling
+thiserror = "2"
+anyhow = "1"
+
+# Config
+toml = "0.8"
+
+# HTTP / API
+axum = { version = "0.8", features = ["ws"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+reqwest = { version = "0.12", features = ["json"] }
+
+# Ethereum / Blockchain
+alloy = { version = "1", features = ["full"] }
+
+# ML / Math
+ndarray = "0.16"
+extended-isolation-forest = "0.2"
+rand = "0.8"
+
+# Storage
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# UUID
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# Channels
+tokio-stream = "0.1"
+
+# Internal crates
+fraud-common = { path = "crates/common" }
+fraud-indexer = { path = "crates/indexer" }
+fraud-features = { path = "crates/features" }
+fraud-scorer = { path = "crates/scorer" }
+fraud-alerts = { path = "crates/alerts" }
+fraud-api = { path = "crates/api" }
+fraud-storage = { path = "crates/storage" }
+
+[dependencies]
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+toml = { workspace = true }
+serde = { workspace = true }
+fraud-common = { workspace = true }
+fraud-indexer = { workspace = true }
+fraud-features = { workspace = true }
+fraud-scorer = { workspace = true }
+fraud-alerts = { workspace = true }
+fraud-api = { workspace = true }
+fraud-storage = { workspace = true }

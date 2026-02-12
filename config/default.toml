@@ -1,0 +1,33 @@
+[pipeline]
+channel_buffer = 1024
+
+[indexer]
+rpc_url = "https://eth.llamarpc.com"
+poll_interval_ms = 12000        # ~1 Ethereum block
+# start_block = 19000000        # uncomment to replay from a specific block
+
+[scorer]
+alert_threshold = 0.65
+
+[scorer.model_weights]
+isolation_forest = 0.4
+statistical = 0.35
+rules = 0.25
+
+[scorer.isolation_forest]
+num_trees = 100
+sample_size = 256
+min_training_samples = 512
+retrain_interval = 1000
+
+[alerts]
+log_enabled = true
+# webhook_url = "https://hooks.slack.com/services/XXX/YYY/ZZZ"
+
+[api]
+bind_address = "127.0.0.1"
+port = 3000
+
+[storage]
+enabled = true
+db_path = "data/fraud.db"

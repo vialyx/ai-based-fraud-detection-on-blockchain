@@ -1,0 +1,16 @@
+[package]
+name = "fraud-scorer"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+fraud-common = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+serde = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+ndarray = { workspace = true }
+extended-isolation-forest = { workspace = true }
