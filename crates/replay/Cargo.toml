@@ -1,0 +1,16 @@
+[package]
+name = "fraud-replay"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+fraud-common = { workspace = true }
+fraud-features = { workspace = true }
+fraud-scorer = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+csv = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }

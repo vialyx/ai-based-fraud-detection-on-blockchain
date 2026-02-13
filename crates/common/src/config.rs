@@ -10,6 +10,8 @@ pub struct AppConfig {
     pub alerts: AlertsConfig,
     pub api: ApiConfig,
     pub storage: StorageConfig,
+    #[serde(default)]
+    pub replay: Option<ReplayConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -79,6 +81,19 @@ pub struct ApiConfig {
     pub bind_address: String,
     /// Port for the HTTP server.
     pub port: u16,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReplayConfig {
+    /// Path to the labeled dataset CSV file.
+    pub dataset_path: String,
+    /// Number of steps for threshold sweep (default: 20).
+    #[serde(default = "default_sweep_steps")]
+    pub sweep_steps: usize,
+}
+
+fn default_sweep_steps() -> usize {
+    20
 }
 
 impl AppConfig {

@@ -15,6 +15,7 @@ members = [
     "crates/alerts",
     "crates/api",
     "crates/storage",
+    "crates/replay",
 ]
 resolver = "2"
 
@@ -58,6 +59,9 @@ ndarray = "0.16"
 extended-isolation-forest = "0.2"
 rand = "0.8"
 
+# CSV
+csv = "1"
+
 # Storage
 rusqlite = { version = "0.32", features = ["bundled"] }
 
@@ -78,6 +82,7 @@ fraud-scorer = { path = "crates/scorer" }
 fraud-alerts = { path = "crates/alerts" }
 fraud-api = { path = "crates/api" }
 fraud-storage = { path = "crates/storage" }
+fraud-replay = { path = "crates/replay" }
 
 [dependencies]
 tokio = { workspace = true }
@@ -93,3 +98,4 @@ fraud-scorer = { workspace = true }
 fraud-alerts = { workspace = true }
 fraud-api = { workspace = true }
 fraud-storage = { workspace = true }
+fraud-replay = { workspace = true }
