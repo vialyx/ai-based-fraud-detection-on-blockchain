@@ -194,3 +194,131 @@ impl Default for StatisticalModel {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+    use fraud_common::types::Feature;
+
+    fn make_config(min_training: usize) -> IsolationForestConfig {
+        IsolationForestConfig {
+            num_trees: 10,
+            sample_size: 32,
+            min_training_samples: min_training,
+            retrain_interval: 100,
+        }
+    }
+
+    fn make_fv(features: Vec<(&str, f64)>) -> FeatureVector {
+        FeatureVector {
+            tx_hash: "0xtest".into(),
+            block_number: 1,
+            features: features.into_iter().map(|(n, v)| Feature { name: n.into(), value: v }).collect(),
+            extracted_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn warmup_uses_fallback() {
+        let mut model = IsolationForestModel::new(&make_config(100));
+        let fv = make_fv(vec![
+            ("value_z_score", 3.0),
+            ("gas_z_score", 2.0),
+        ]);
+        let result = model.score(&fv);
+        assert_eq!(result.model_name, "isolation_forest");
+        // During warm-up (buffer < 100), should use fallback
+        assert!(result.score >= 0.0 && result.score <= 1.0);
+    }
+
+    #[test]
+    fn fallback_returns_zero_for_no_z_scores() {
+        let fv = make_fv(vec![("value_eth", 1.0)]);
+        let score = IsolationForestModel::fallback_score(&fv);
+        assert_eq!(score, 0.0);
+    }
+
+    #[test]
+    fn trains_after_min_samples() {
+        let mut model = IsolationForestModel::new(&make_config(5));
+        assert!(model.forest.is_none());
+
+        // Feed 5 samples to trigger training
+        for i in 0..5 {
+            let fv = make_fv(vec![
+                ("value_eth", i as f64),
+                ("gas_used", (i * 1000) as f64),
+                ("nonce", i as f64),
+            ]);
+            model.score(&fv);
+        }
+        assert!(model.forest.is_some(), "forest should be trained after min_training_samples");
+    }
+
+    #[test]
+    fn trained_model_returns_valid_score() {
+        let mut model = IsolationForestModel::new(&make_config(5));
+        // Feed training data
+        for i in 0..10 {
+            let fv = make_fv(vec![
+                ("value_eth", (i as f64) * 0.1),
+                ("gas_used", 21000.0 + i as f64),
+            ]);
+            model.score(&fv);
+        }
+        assert!(model.forest.is_some());
+
+        // Score one more - should use trained model
+        let fv = make_fv(vec![
+            ("value_eth", 100.0), // outlier
+            ("gas_used", 999999.0),
+        ]);
+        let result = model.score(&fv);
+        assert!(result.score >= 0.0 && result.score <= 1.0);
+    }
+
+    #[test]
+    fn buffer_capped() {
+        let mut model = IsolationForestModel::new(&make_config(5));
+        let cap = model.config.sample_size * 2; // 64
+        // Push more than cap
+        for i in 0..(cap + 20) {
+            let fv = make_fv(vec![("value_eth", i as f64)]);
+            model.score(&fv);
+        }
+        assert!(model.buffer.len() <= cap);
+    }
+
+    // -- StatisticalModel tests --
+
+    #[test]
+    fn statistical_model_no_z_scores() {
+        let model = StatisticalModel::new();
+        let fv = make_fv(vec![("value_eth", 1.0)]);
+        let result = model.score(&fv);
+        assert_eq!(result.model_name, "statistical");
+        assert_eq!(result.score, 0.0);
+    }
+
+    #[test]
+    fn statistical_model_high_z_score() {
+        let model = StatisticalModel::new();
+        let fv = make_fv(vec![
+            ("value_z_score", 4.0),
+            ("gas_z_score", 1.0),
+        ]);
+        let result = model.score(&fv);
+        // max_z = 4.0 → score = 4.0/5.0 = 0.8
+        assert!((result.score - 0.8).abs() < 1e-9);
+    }
+
+    #[test]
+    fn statistical_model_capped_at_one() {
+        let model = StatisticalModel::new();
+        let fv = make_fv(vec![("value_z_score", 10.0)]);
+        let result = model.score(&fv);
+        // max_z = 10.0, 10/5 = 2.0, capped at 1.0
+        assert!((result.score - 1.0).abs() < 1e-9);
+    }
+}

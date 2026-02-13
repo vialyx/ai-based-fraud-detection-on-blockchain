@@ -85,4 +85,80 @@ mod tests {
         s.push(6.0); // evicts 1.0
         assert!((s.mean() - (2.0 + 3.0 + 6.0) / 3.0).abs() < 1e-9);
     }
+
+    #[test]
+    fn empty_stats() {
+        let s = RollingStats::new(10);
+        assert_eq!(s.mean(), 0.0);
+        assert_eq!(s.std_dev(), 0.0);
+        assert_eq!(s.z_score(), 0.0);
+        assert!(s.is_empty());
+        assert_eq!(s.len(), 0);
+    }
+
+    #[test]
+    fn single_element_std_dev_is_zero() {
+        let mut s = RollingStats::new(10);
+        s.push(42.0);
+        assert_eq!(s.std_dev(), 0.0);
+        assert_eq!(s.z_score(), 0.0);
+        assert_eq!(s.len(), 1);
+        assert!(!s.is_empty());
+    }
+
+    #[test]
+    fn all_same_values_zero_std_dev() {
+        let mut s = RollingStats::new(5);
+        for _ in 0..5 {
+            s.push(7.0);
+        }
+        assert!((s.mean() - 7.0).abs() < 1e-9);
+        assert_eq!(s.std_dev(), 0.0);
+        assert_eq!(s.z_score(), 0.0);
+    }
+
+    #[test]
+    fn std_dev_known_values() {
+        let mut s = RollingStats::new(5);
+        // Values: 2, 4, 4, 4, 5, 5, 7, 9 → push last 5: 4, 5, 5, 7, 9
+        for v in &[4.0, 5.0, 5.0, 7.0, 9.0] {
+            s.push(*v);
+        }
+        let mean = (4.0 + 5.0 + 5.0 + 7.0 + 9.0) / 5.0; // 6.0
+        assert!((s.mean() - mean).abs() < 1e-9);
+        // sample std dev = sqrt(((4-6)^2 + (5-6)^2 + (5-6)^2 + (7-6)^2 + (9-6)^2) / 4)
+        // = sqrt((4+1+1+1+9)/4) = sqrt(16/4) = sqrt(4) = 2.0
+        assert!((s.std_dev() - 2.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn z_score_positive_for_high_outlier() {
+        let mut s = RollingStats::new(10);
+        for v in &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 100.0] {
+            s.push(*v);
+        }
+        assert!(s.z_score() > 2.0, "z_score should be high for outlier: {}", s.z_score());
+    }
+
+    #[test]
+    fn min_max() {
+        let mut s = RollingStats::new(5);
+        s.push(3.0);
+        s.push(1.0);
+        s.push(5.0);
+        assert!((s.min() - 1.0).abs() < 1e-9);
+        assert!((s.max() - 5.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn eviction_at_capacity() {
+        let mut s = RollingStats::new(3);
+        s.push(10.0);
+        s.push(20.0);
+        s.push(30.0);
+        assert_eq!(s.len(), 3);
+        s.push(40.0); // evicts 10.0
+        assert_eq!(s.len(), 3);
+        assert!((s.min() - 20.0).abs() < 1e-9);
+    }
 }

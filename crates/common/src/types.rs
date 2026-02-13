@@ -152,3 +152,91 @@ pub enum PipelineEvent {
     /// Alert emitted.
     AlertRaised(Alert),
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn risk_level_display() {
+        assert_eq!(RiskLevel::Low.to_string(), "LOW");
+        assert_eq!(RiskLevel::Medium.to_string(), "MEDIUM");
+        assert_eq!(RiskLevel::High.to_string(), "HIGH");
+        assert_eq!(RiskLevel::Critical.to_string(), "CRITICAL");
+    }
+
+    #[test]
+    fn risk_level_serde_roundtrip() {
+        for level in &[RiskLevel::Low, RiskLevel::Medium, RiskLevel::High, RiskLevel::Critical] {
+            let json = serde_json::to_string(level).unwrap();
+            let back: RiskLevel = serde_json::from_str(&json).unwrap();
+            assert_eq!(*level, back);
+        }
+    }
+
+    #[test]
+    fn transaction_construction() {
+        let tx = Transaction {
+            hash: "0xabc".into(),
+            block_number: 1,
+            from: "0xfrom".into(),
+            to: Some("0xto".into()),
+            value: 1_000_000,
+            gas_price: Some(20_000_000_000),
+            max_fee_per_gas: Some(30_000_000_000),
+            max_priority_fee_per_gas: Some(1_000_000_000),
+            gas_used: 21000,
+            input: vec![],
+            nonce: 0,
+            tx_index: 0,
+            timestamp: 1700000000,
+        };
+        assert_eq!(tx.hash, "0xabc");
+        assert_eq!(tx.gas_used, 21000);
+    }
+
+    #[test]
+    fn block_header_serde_roundtrip() {
+        let header = BlockHeader {
+            number: 100,
+            hash: "0xblock".into(),
+            parent_hash: "0xparent".into(),
+            timestamp: 1700000000,
+            gas_used: 15_000_000,
+            gas_limit: 30_000_000,
+            base_fee_per_gas: Some(10_000_000_000),
+        };
+        let json = serde_json::to_string(&header).unwrap();
+        let back: BlockHeader = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.number, 100);
+        assert_eq!(back.gas_used, 15_000_000);
+    }
+
+    #[test]
+    fn feature_vector_serde_roundtrip() {
+        let fv = FeatureVector {
+            tx_hash: "0xtx".into(),
+            block_number: 5,
+            features: vec![
+                Feature { name: "value_eth".into(), value: 1.5 },
+                Feature { name: "gas_used".into(), value: 21000.0 },
+            ],
+            extracted_at: Utc::now(),
+        };
+        let json = serde_json::to_string(&fv).unwrap();
+        let back: FeatureVector = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.features.len(), 2);
+        assert!((back.features[0].value - 1.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn pipeline_event_variants() {
+        let header = BlockHeader {
+            number: 1, hash: "0x1".into(), parent_hash: "0x0".into(),
+            timestamp: 0, gas_used: 0, gas_limit: 0, base_fee_per_gas: None,
+        };
+        let event = PipelineEvent::NewBlock { header, transactions: vec![] };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("NewBlock"));
+    }
+}

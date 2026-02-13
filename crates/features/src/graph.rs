@@ -98,4 +98,53 @@ mod tests {
         assert_eq!(g.in_degree(&b), 1);
         assert_eq!(g.in_tx_count(&b), 2);
     }
+
+    #[test]
+    fn unknown_address_returns_zero() {
+        let g = AddressGraph::new();
+        let unknown = "0xNOBODY".to_string();
+        assert_eq!(g.out_degree(&unknown), 0);
+        assert_eq!(g.in_degree(&unknown), 0);
+        assert_eq!(g.out_tx_count(&unknown), 0);
+        assert_eq!(g.in_tx_count(&unknown), 0);
+        assert_eq!(g.fan_out_ratio(&unknown), 0.0);
+        assert_eq!(g.fan_in_ratio(&unknown), 0.0);
+    }
+
+    #[test]
+    fn fan_out_ratio_all_unique() {
+        let mut g = AddressGraph::new();
+        let a = "0xA".to_string();
+        // Send to 3 unique addresses → ratio = 3/3 = 1.0
+        g.record_transfer(&a, &"0xB".into());
+        g.record_transfer(&a, &"0xC".into());
+        g.record_transfer(&a, &"0xD".into());
+        assert!((g.fan_out_ratio(&a) - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn fan_out_ratio_all_same() {
+        let mut g = AddressGraph::new();
+        let a = "0xA".to_string();
+        let b = "0xB".to_string();
+        // Send to same address 5 times → ratio = 1/5 = 0.2
+        for _ in 0..5 {
+            g.record_transfer(&a, &b);
+        }
+        assert!((g.fan_out_ratio(&a) - 0.2).abs() < 1e-9);
+    }
+
+    #[test]
+    fn fan_in_ratio() {
+        let mut g = AddressGraph::new();
+        let target = "0xTarget".to_string();
+        // Receive from 2 unique senders, 4 total tx → ratio = 2/4 = 0.5
+        g.record_transfer(&"0xA".into(), &target);
+        g.record_transfer(&"0xA".into(), &target);
+        g.record_transfer(&"0xB".into(), &target);
+        g.record_transfer(&"0xB".into(), &target);
+        assert!((g.fan_in_ratio(&target) - 0.5).abs() < 1e-9);
+        assert_eq!(g.in_degree(&target), 2);
+        assert_eq!(g.in_tx_count(&target), 4);
+    }
 }

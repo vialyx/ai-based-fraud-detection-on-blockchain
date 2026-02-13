@@ -95,3 +95,182 @@ pub async fn serve(config: &ApiConfig, state: Arc<AppState>) -> Result<(), fraud
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use chrono::Utc;
+    use fraud_common::types::{Alert, FraudScore, ModelScore, RiskLevel};
+    use tower::ServiceExt;
+    use uuid::Uuid;
+
+    fn make_state() -> Arc<AppState> {
+        let (tx, _rx) = broadcast::channel(16);
+        Arc::new(AppState::new(tx))
+    }
+
+    fn make_score(tx_hash: &str) -> FraudScore {
+        FraudScore {
+            id: Uuid::new_v4(),
+            tx_hash: tx_hash.into(),
+            block_number: 1,
+            score: 0.5,
+            risk_level: RiskLevel::Medium,
+            model_scores: vec![ModelScore { model_name: "test".into(), score: 0.5, weight: 1.0 }],
+            triggered_rules: vec![],
+            scored_at: Utc::now(),
+        }
+    }
+
+    fn make_alert(tx_hash: &str) -> Alert {
+        Alert {
+            id: Uuid::new_v4(),
+            fraud_score: make_score(tx_hash),
+            from: "0xfrom".into(),
+            to: Some("0xto".into()),
+            value: 1000,
+            created_at: Utc::now(),
+            acknowledged: false,
+        }
+    }
+
+    #[test]
+    fn push_score_increments_stats() {
+        let state = make_state();
+        state.push_score(make_score("0x1"));
+        state.push_score(make_score("0x2"));
+
+        let stats = state.stats.lock().unwrap();
+        assert_eq!(stats.transactions_scored, 2);
+        assert_eq!(state.recent_scores.lock().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn push_alert_increments_stats() {
+        let state = make_state();
+        state.push_alert(make_alert("0x1"));
+
+        let stats = state.stats.lock().unwrap();
+        assert_eq!(stats.alerts_raised, 1);
+        assert_eq!(state.recent_alerts.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn inc_blocks() {
+        let state = make_state();
+        state.inc_blocks();
+        state.inc_blocks();
+        state.inc_blocks();
+
+        let stats = state.stats.lock().unwrap();
+        assert_eq!(stats.blocks_processed, 3);
+    }
+
+    #[test]
+    fn score_ring_buffer_eviction() {
+        let state = make_state();
+        for i in 0..(MAX_RECENT + 10) {
+            state.push_score(make_score(&format!("0x{i}")));
+        }
+        let buf = state.recent_scores.lock().unwrap();
+        assert_eq!(buf.len(), MAX_RECENT);
+        // Oldest should have been evicted; first in buffer should be "0x10"
+        assert_eq!(buf.front().unwrap().tx_hash, "0x10");
+    }
+
+    #[test]
+    fn alert_ring_buffer_eviction() {
+        let state = make_state();
+        for i in 0..(MAX_RECENT + 5) {
+            state.push_alert(make_alert(&format!("0x{i}")));
+        }
+        let buf = state.recent_alerts.lock().unwrap();
+        assert_eq!(buf.len(), MAX_RECENT);
+    }
+
+    #[tokio::test]
+    async fn health_endpoint() {
+        let state = make_state();
+        let app = build_router(state);
+
+        let resp = app
+            .oneshot(Request::builder().uri("/health").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["status"], "ok");
+    }
+
+    #[tokio::test]
+    async fn scores_endpoint() {
+        let state = make_state();
+        state.push_score(make_score("0xabc"));
+        let app = build_router(state);
+
+        let resp = app
+            .oneshot(Request::builder().uri("/api/scores").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["count"], 1);
+    }
+
+    #[tokio::test]
+    async fn alerts_endpoint() {
+        let state = make_state();
+        state.push_alert(make_alert("0xdef"));
+        let app = build_router(state);
+
+        let resp = app
+            .oneshot(Request::builder().uri("/api/alerts").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["count"], 1);
+    }
+
+    #[tokio::test]
+    async fn stats_endpoint() {
+        let state = make_state();
+        state.inc_blocks();
+        state.push_score(make_score("0x1"));
+        state.push_alert(make_alert("0x2"));
+        let app = build_router(state);
+
+        let resp = app
+            .oneshot(Request::builder().uri("/api/stats").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["blocks_processed"], 1);
+        assert_eq!(json["transactions_scored"], 1);
+        assert_eq!(json["alerts_raised"], 1);
+    }
+
+    #[tokio::test]
+    async fn not_found_returns_404() {
+        let state = make_state();
+        let app = build_router(state);
+
+        let resp = app
+            .oneshot(Request::builder().uri("/nonexistent").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+}

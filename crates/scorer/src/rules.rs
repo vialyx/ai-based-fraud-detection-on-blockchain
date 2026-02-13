@@ -139,3 +139,124 @@ impl Rule for HighFanOutRule {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+    use fraud_common::types::Feature;
+
+    fn make_fv(features: Vec<(&str, f64)>) -> FeatureVector {
+        FeatureVector {
+            tx_hash: "0xtest".into(),
+            block_number: 1,
+            features: features.into_iter().map(|(n, v)| Feature { name: n.into(), value: v }).collect(),
+            extracted_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn high_value_rule_triggers() {
+        let engine = RuleEngine::new();
+        let fv = make_fv(vec![("value_eth", 200.0)]);
+        let (score, rules) = engine.evaluate(&fv);
+        assert!(rules.contains(&"high_value_transfer".to_string()));
+        assert!(score.score > 0.0);
+    }
+
+    #[test]
+    fn high_value_rule_does_not_trigger_below_threshold() {
+        let engine = RuleEngine::new();
+        let fv = make_fv(vec![("value_eth", 50.0)]);
+        let (_score, rules) = engine.evaluate(&fv);
+        assert!(!rules.contains(&"high_value_transfer".to_string()));
+    }
+
+    #[test]
+    fn first_tx_high_value_rule_triggers() {
+        let engine = RuleEngine::new();
+        let fv = make_fv(vec![
+            ("is_first_tx", 1.0),
+            ("value_eth", 15.0),
+        ]);
+        let (_score, rules) = engine.evaluate(&fv);
+        assert!(rules.contains(&"first_tx_high_value".to_string()));
+    }
+
+    #[test]
+    fn first_tx_high_value_not_first_tx() {
+        let engine = RuleEngine::new();
+        let fv = make_fv(vec![
+            ("is_first_tx", 0.0),
+            ("value_eth", 15.0),
+        ]);
+        let (_score, rules) = engine.evaluate(&fv);
+        assert!(!rules.contains(&"first_tx_high_value".to_string()));
+    }
+
+    #[test]
+    fn contract_creation_rule_triggers() {
+        let engine = RuleEngine::new();
+        let fv = make_fv(vec![("is_contract_creation", 1.0)]);
+        let (_score, rules) = engine.evaluate(&fv);
+        assert!(rules.contains(&"contract_creation".to_string()));
+    }
+
+    #[test]
+    fn contract_creation_rule_does_not_trigger() {
+        let engine = RuleEngine::new();
+        let fv = make_fv(vec![("is_contract_creation", 0.0)]);
+        let (_score, rules) = engine.evaluate(&fv);
+        assert!(!rules.contains(&"contract_creation".to_string()));
+    }
+
+    #[test]
+    fn high_fan_out_rule_triggers() {
+        let engine = RuleEngine::new();
+        let fv = make_fv(vec![("sender_fan_out_ratio", 0.98)]);
+        let (_score, rules) = engine.evaluate(&fv);
+        assert!(rules.contains(&"high_fan_out".to_string()));
+    }
+
+    #[test]
+    fn high_fan_out_rule_does_not_trigger_below() {
+        let engine = RuleEngine::new();
+        let fv = make_fv(vec![("sender_fan_out_ratio", 0.5)]);
+        let (_score, rules) = engine.evaluate(&fv);
+        assert!(!rules.contains(&"high_fan_out".to_string()));
+    }
+
+    #[test]
+    fn no_rules_trigger_on_empty_features() {
+        let engine = RuleEngine::new();
+        let fv = make_fv(vec![]);
+        let (score, rules) = engine.evaluate(&fv);
+        assert!(rules.is_empty());
+        assert_eq!(score.score, 0.0);
+    }
+
+    #[test]
+    fn multiple_rules_trigger() {
+        let engine = RuleEngine::new();
+        let fv = make_fv(vec![
+            ("value_eth", 200.0),
+            ("is_contract_creation", 1.0),
+            ("sender_fan_out_ratio", 0.99),
+        ]);
+        let (score, rules) = engine.evaluate(&fv);
+        assert!(rules.len() >= 2);
+        assert!(score.score > 0.0);
+        // Score capped at 1.0
+        assert!(score.score <= 1.0);
+    }
+
+    #[test]
+    fn rule_score_is_averaged_over_total_rules() {
+        let engine = RuleEngine::new();
+        // Only high_value triggers (severity 0.8) out of 4 rules
+        let fv = make_fv(vec![("value_eth", 200.0)]);
+        let (score, _) = engine.evaluate(&fv);
+        // Expected: 0.8 / 4 = 0.2
+        assert!((score.score - 0.2).abs() < 1e-9);
+    }
+}

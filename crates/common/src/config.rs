@@ -96,3 +96,94 @@ impl AppConfig {
         Self::from_file(Path::new("config/default.toml"))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn parse_valid_toml() {
+        let dir = std::env::temp_dir().join("fraud_test_config_valid");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("test.toml");
+        let mut f = std::fs::File::create(&path).unwrap();
+        writeln!(f, r#"
+[pipeline]
+channel_buffer = 64
+
+[indexer]
+rpc_url = "http://localhost:8545"
+poll_interval_ms = 1000
+
+[scorer]
+alert_threshold = 0.7
+
+[scorer.model_weights]
+isolation_forest = 0.4
+statistical = 0.35
+rules = 0.25
+
+[scorer.isolation_forest]
+num_trees = 10
+sample_size = 32
+min_training_samples = 64
+retrain_interval = 100
+
+[alerts]
+log_enabled = true
+
+[api]
+bind_address = "127.0.0.1"
+port = 3000
+
+[storage]
+enabled = false
+db_path = ":memory:"
+"#).unwrap();
+
+        let config = AppConfig::from_file(&path).unwrap();
+        assert_eq!(config.pipeline.channel_buffer, 64);
+        assert_eq!(config.scorer.alert_threshold, 0.7);
+        assert!(!config.storage.enabled);
+        assert_eq!(config.scorer.isolation_forest.num_trees, 10);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn missing_file_returns_error() {
+        let result = AppConfig::from_file(Path::new("/tmp/nonexistent_fraud_cfg.toml"));
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(err_msg.contains("cannot read config"));
+    }
+
+    #[test]
+    fn invalid_toml_returns_error() {
+        let dir = std::env::temp_dir().join("fraud_test_config_invalid");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("bad.toml");
+        std::fs::write(&path, "this is not valid toml {{{{").unwrap();
+
+        let result = AppConfig::from_file(&path);
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(err_msg.contains("invalid config TOML"));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn incomplete_toml_returns_error() {
+        let dir = std::env::temp_dir().join("fraud_test_config_incomplete");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("partial.toml");
+        std::fs::write(&path, "[pipeline]\nchannel_buffer = 64\n").unwrap();
+
+        let result = AppConfig::from_file(&path);
+        assert!(result.is_err());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+}

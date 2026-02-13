@@ -170,3 +170,129 @@ impl Default for FeatureExtractor {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mock_tx() -> Transaction {
+        Transaction {
+            hash: "0xdeadbeef".into(),
+            block_number: 100,
+            from: "0xsender".into(),
+            to: Some("0xreceiver".into()),
+            value: 5_000_000_000_000_000_000, // 5 ETH
+            gas_price: Some(20_000_000_000),   // 20 gwei
+            max_fee_per_gas: Some(30_000_000_000),
+            max_priority_fee_per_gas: Some(1_000_000_000),
+            gas_used: 21000,
+            input: vec![0xa9, 0x05, 0x9c, 0xbb, 0x01, 0x02], // >4 bytes → contract call
+            nonce: 0,
+            tx_index: 0,
+            timestamp: 1700000000,
+        }
+    }
+
+    #[test]
+    fn extract_produces_expected_features() {
+        let mut ext = FeatureExtractor::new();
+        let tx = mock_tx();
+        let fv = ext.extract(&tx);
+
+        assert_eq!(fv.tx_hash, "0xdeadbeef");
+        assert_eq!(fv.block_number, 100);
+
+        let get = |name: &str| -> f64 {
+            fv.features.iter().find(|f| f.name == name).map(|f| f.value).unwrap_or(f64::NAN)
+        };
+
+        // value_eth should be ~5.0
+        assert!((get("value_eth") - 5.0).abs() < 1e-9);
+
+        // gas_used should be 21000
+        assert!((get("gas_used") - 21000.0).abs() < 1e-9);
+
+        // gas_price_gwei should be 20.0
+        assert!((get("gas_price_gwei") - 20.0).abs() < 1e-9);
+
+        // is_contract_call should be 1.0 (input > 4 bytes)
+        assert!((get("is_contract_call") - 1.0).abs() < 1e-9);
+
+        // is_contract_creation should be 0.0 (to is Some)
+        assert!((get("is_contract_creation") - 0.0).abs() < 1e-9);
+
+        // is_first_tx should be 1.0 (nonce == 0)
+        assert!((get("is_first_tx") - 1.0).abs() < 1e-9);
+
+        // nonce should be 0
+        assert!((get("nonce") - 0.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn contract_creation_when_to_is_none() {
+        let mut ext = FeatureExtractor::new();
+        let mut tx = mock_tx();
+        tx.to = None;
+        let fv = ext.extract(&tx);
+
+        let is_creation = fv.features.iter().find(|f| f.name == "is_contract_creation")
+            .map(|f| f.value).unwrap();
+        assert!((is_creation - 1.0).abs() < 1e-9);
+
+        // receiver features should not be present
+        assert!(fv.features.iter().find(|f| f.name == "receiver_in_degree").is_none());
+    }
+
+    #[test]
+    fn not_contract_call_when_input_short() {
+        let mut ext = FeatureExtractor::new();
+        let mut tx = mock_tx();
+        tx.input = vec![]; // empty input → not a contract call
+        let fv = ext.extract(&tx);
+
+        let is_call = fv.features.iter().find(|f| f.name == "is_contract_call")
+            .map(|f| f.value).unwrap();
+        assert!((is_call - 0.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn z_scores_improve_with_history() {
+        let mut ext = FeatureExtractor::new();
+        // Push many similar transactions to build statistics
+        for _ in 0..50 {
+            let tx = mock_tx();
+            ext.extract(&tx);
+        }
+
+        // Now push an outlier
+        let mut outlier = mock_tx();
+        outlier.value = 500_000_000_000_000_000_000; // 500 ETH
+        outlier.gas_used = 5_000_000;
+        let fv = ext.extract(&outlier);
+
+        let value_z = fv.features.iter().find(|f| f.name == "value_z_score")
+            .map(|f| f.value).unwrap();
+        // Outlier should have a high z-score
+        assert!(value_z > 1.0, "value z-score should be high for outlier: {value_z}");
+    }
+
+    #[test]
+    fn graph_features_accumulate() {
+        let mut ext = FeatureExtractor::new();
+        let mut tx = mock_tx();
+
+        // First extraction: sender out_degree should be 1
+        let fv1 = ext.extract(&tx);
+        let out_deg = fv1.features.iter().find(|f| f.name == "sender_out_degree")
+            .map(|f| f.value).unwrap();
+        assert!((out_deg - 1.0).abs() < 1e-9);
+
+        // Send to a different address
+        tx.to = Some("0xother".into());
+        tx.hash = "0xdeadbeef2".into();
+        let fv2 = ext.extract(&tx);
+        let out_deg2 = fv2.features.iter().find(|f| f.name == "sender_out_degree")
+            .map(|f| f.value).unwrap();
+        assert!((out_deg2 - 2.0).abs() < 1e-9);
+    }
+}

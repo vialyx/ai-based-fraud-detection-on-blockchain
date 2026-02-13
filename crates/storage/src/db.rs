@@ -409,4 +409,160 @@ mod tests {
 
         assert_eq!(storage.count_alerts().unwrap(), 1);
     }
+
+    #[test]
+    fn risk_level_roundtrip_all_variants() {
+        for (level, expected_str) in &[
+            (RiskLevel::Low, "low"),
+            (RiskLevel::Medium, "medium"),
+            (RiskLevel::High, "high"),
+            (RiskLevel::Critical, "critical"),
+        ] {
+            let s = risk_level_to_str(level);
+            assert_eq!(s, *expected_str);
+            let back = risk_level_from_str(s);
+            assert_eq!(back, *level);
+        }
+    }
+
+    #[test]
+    fn risk_level_from_str_unknown_defaults_to_low() {
+        assert_eq!(risk_level_from_str("unknown"), RiskLevel::Low);
+        assert_eq!(risk_level_from_str(""), RiskLevel::Low);
+    }
+
+    #[test]
+    fn get_recent_scores_ordering() {
+        let storage = test_storage();
+
+        // Insert 3 scores with different times
+        for i in 0..3 {
+            let score = FraudScore {
+                id: Uuid::new_v4(),
+                tx_hash: format!("0x{i}"),
+                block_number: i as u64,
+                score: 0.5,
+                risk_level: RiskLevel::Medium,
+                model_scores: vec![],
+                triggered_rules: vec![],
+                scored_at: Utc::now() + chrono::Duration::seconds(i as i64),
+            };
+            storage.insert_score(&score).unwrap();
+        }
+
+        let recent = storage.get_recent_scores(10).unwrap();
+        assert_eq!(recent.len(), 3);
+        // Should be newest first
+        assert_eq!(recent[0].tx_hash, "0x2");
+        assert_eq!(recent[2].tx_hash, "0x0");
+    }
+
+    #[test]
+    fn get_recent_scores_respects_limit() {
+        let storage = test_storage();
+
+        for i in 0..10 {
+            let score = FraudScore {
+                id: Uuid::new_v4(),
+                tx_hash: format!("0x{i}"),
+                block_number: i,
+                score: 0.5,
+                risk_level: RiskLevel::Low,
+                model_scores: vec![],
+                triggered_rules: vec![],
+                scored_at: Utc::now(),
+            };
+            storage.insert_score(&score).unwrap();
+        }
+
+        let recent = storage.get_recent_scores(3).unwrap();
+        assert_eq!(recent.len(), 3);
+        assert_eq!(storage.count_scores().unwrap(), 10);
+    }
+
+    #[test]
+    fn get_recent_alerts_ordering() {
+        let storage = test_storage();
+
+        for i in 0..3 {
+            let alert = Alert {
+                id: Uuid::new_v4(),
+                fraud_score: FraudScore {
+                    id: Uuid::new_v4(),
+                    tx_hash: format!("0xalert{i}"),
+                    block_number: i as u64,
+                    score: 0.9,
+                    risk_level: RiskLevel::High,
+                    model_scores: vec![],
+                    triggered_rules: vec![],
+                    scored_at: Utc::now(),
+                },
+                from: format!("0xfrom{i}"),
+                to: None,
+                value: i as u128 * 100,
+                created_at: Utc::now() + chrono::Duration::seconds(i as i64),
+                acknowledged: false,
+            };
+            storage.insert_alert(&alert).unwrap();
+        }
+
+        let recent = storage.get_recent_alerts(10).unwrap();
+        assert_eq!(recent.len(), 3);
+        // Newest first
+        assert_eq!(recent[0].from, "0xfrom2");
+    }
+
+    #[test]
+    fn alert_with_none_to_addr() {
+        let storage = test_storage();
+
+        let alert = Alert {
+            id: Uuid::new_v4(),
+            fraud_score: FraudScore {
+                id: Uuid::new_v4(),
+                tx_hash: "0xnull_to".into(),
+                block_number: 1,
+                score: 0.8,
+                risk_level: RiskLevel::High,
+                model_scores: vec![],
+                triggered_rules: vec![],
+                scored_at: Utc::now(),
+            },
+            from: "0xfrom".into(),
+            to: None,
+            value: 0,
+            created_at: Utc::now(),
+            acknowledged: false,
+        };
+
+        storage.insert_alert(&alert).unwrap();
+        let recent = storage.get_recent_alerts(10).unwrap();
+        assert_eq!(recent.len(), 1);
+        assert!(recent[0].to.is_none());
+    }
+
+    #[test]
+    fn score_with_model_scores_persisted() {
+        let storage = test_storage();
+
+        let score = FraudScore {
+            id: Uuid::new_v4(),
+            tx_hash: "0xmodel".into(),
+            block_number: 5,
+            score: 0.6,
+            risk_level: RiskLevel::Medium,
+            model_scores: vec![
+                ModelScore { model_name: "if".into(), score: 0.7, weight: 0.4 },
+                ModelScore { model_name: "stat".into(), score: 0.5, weight: 0.35 },
+            ],
+            triggered_rules: vec!["rule1".into(), "rule2".into()],
+            scored_at: Utc::now(),
+        };
+
+        storage.insert_score(&score).unwrap();
+        let recent = storage.get_recent_scores(1).unwrap();
+        assert_eq!(recent[0].model_scores.len(), 2);
+        assert_eq!(recent[0].triggered_rules.len(), 2);
+        assert_eq!(recent[0].triggered_rules[0], "rule1");
+    }
 }
