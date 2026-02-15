@@ -30,7 +30,7 @@ pub struct ScoresResponse {
 
 /// GET /api/scores – returns the most recent fraud scores kept in memory.
 pub async fn get_scores(State(state): State<Arc<AppState>>) -> Json<ScoresResponse> {
-    let scores = state.recent_scores.lock().unwrap().clone();
+    let scores = state.recent_scores.lock().unwrap_or_else(|e| e.into_inner()).clone();
     let scores: Vec<_> = scores.into();
     Json(ScoresResponse {
         count: scores.len(),
@@ -47,7 +47,7 @@ pub struct AlertsResponse {
 
 /// GET /api/alerts – returns the most recent alerts kept in memory.
 pub async fn get_alerts(State(state): State<Arc<AppState>>) -> Json<AlertsResponse> {
-    let alerts = state.recent_alerts.lock().unwrap().clone();
+    let alerts = state.recent_alerts.lock().unwrap_or_else(|e| e.into_inner()).clone();
     let alerts: Vec<_> = alerts.into();
     Json(AlertsResponse {
         count: alerts.len(),
@@ -65,7 +65,7 @@ pub struct StatsResponse {
 
 /// GET /api/stats
 pub async fn get_stats(State(state): State<Arc<AppState>>) -> Json<StatsResponse> {
-    let stats = state.stats.lock().unwrap();
+    let stats = state.stats.lock().unwrap_or_else(|e| e.into_inner());
     Json(StatsResponse {
         blocks_processed: stats.blocks_processed,
         transactions_scored: stats.transactions_scored,

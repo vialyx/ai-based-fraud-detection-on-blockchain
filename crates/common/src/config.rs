@@ -103,12 +103,73 @@ impl AppConfig {
             .map_err(|e| crate::error::Error::Config(format!("cannot read config: {e}")))?;
         let config: Self = toml::from_str(&content)
             .map_err(|e| crate::error::Error::Config(format!("invalid config TOML: {e}")))?;
+        config.validate()?;
         Ok(config)
     }
 
     /// Load from the default path `config/default.toml`.
     pub fn load_default() -> Result<Self, crate::error::Error> {
         Self::from_file(Path::new("config/default.toml"))
+    }
+
+    /// Validate all configuration values for safety and correctness.
+    pub fn validate(&self) -> Result<(), crate::error::Error> {
+        use crate::security;
+
+        // Pipeline
+        if self.pipeline.channel_buffer == 0 || self.pipeline.channel_buffer > 100_000 {
+            return Err(crate::error::Error::Config(
+                "channel_buffer must be in [1, 100_000]".into(),
+            ));
+        }
+
+        // Indexer
+        if self.indexer.rpc_url.is_empty() {
+            return Err(crate::error::Error::Config("rpc_url must not be empty".into()));
+        }
+        if self.indexer.poll_interval_ms < 100 {
+            return Err(crate::error::Error::Config(
+                "poll_interval_ms must be >= 100 to avoid RPC abuse".into(),
+            ));
+        }
+
+        // Scorer
+        if security::validate_score(self.scorer.alert_threshold).is_err() {
+            return Err(crate::error::Error::Config(
+                "alert_threshold must be in [0.0, 1.0]".into(),
+            ));
+        }
+        let w = &self.scorer.model_weights;
+        let total = w.isolation_forest + w.statistical + w.rules;
+        if total <= 0.0 || !total.is_finite() {
+            return Err(crate::error::Error::Config(
+                "model weights must sum to a positive finite number".into(),
+            ));
+        }
+        if self.scorer.isolation_forest.num_trees == 0 {
+            return Err(crate::error::Error::Config(
+                "num_trees must be > 0".into(),
+            ));
+        }
+        if self.scorer.isolation_forest.sample_size < 2 {
+            return Err(crate::error::Error::Config(
+                "sample_size must be >= 2".into(),
+            ));
+        }
+
+        // API
+        if let Err(e) = security::validate_port(self.api.port) {
+            return Err(crate::error::Error::Config(e.to_string()));
+        }
+
+        // Alerts – validate webhook URL if configured
+        if let Some(ref url) = self.alerts.webhook_url {
+            if let Err(e) = security::validate_webhook_url(url) {
+                return Err(crate::error::Error::Config(e.to_string()));
+            }
+        }
+
+        Ok(())
     }
 }
 

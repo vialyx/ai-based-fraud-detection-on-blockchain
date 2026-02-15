@@ -1,3 +1,4 @@
+use axum::extract::DefaultBodyLimit;
 use axum::routing::get;
 use axum::Router;
 use fraud_common::config::ApiConfig;
@@ -5,10 +6,12 @@ use fraud_common::types::{Alert, FraudScore};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;
-use tower_http::cors::CorsLayer;
+use tower_http::cors::{CorsLayer, AllowOrigin};
 use tower_http::services::ServeDir;
+use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::TraceLayer;
 use tracing::info;
+use http::header::HeaderValue;
 
 use crate::handlers;
 use crate::ws;
@@ -43,27 +46,27 @@ impl AppState {
 
     /// Push a new score into the ring buffer.
     pub fn push_score(&self, score: FraudScore) {
-        let mut buf = self.recent_scores.lock().unwrap();
+        let mut buf = self.recent_scores.lock().unwrap_or_else(|e| e.into_inner());
         if buf.len() == MAX_RECENT {
             buf.pop_front();
         }
         buf.push_back(score);
-        self.stats.lock().unwrap().transactions_scored += 1;
+        self.stats.lock().unwrap_or_else(|e| e.into_inner()).transactions_scored += 1;
     }
 
     /// Push a new alert into the ring buffer.
     pub fn push_alert(&self, alert: Alert) {
-        let mut buf = self.recent_alerts.lock().unwrap();
+        let mut buf = self.recent_alerts.lock().unwrap_or_else(|e| e.into_inner());
         if buf.len() == MAX_RECENT {
             buf.pop_front();
         }
         buf.push_back(alert);
-        self.stats.lock().unwrap().alerts_raised += 1;
+        self.stats.lock().unwrap_or_else(|e| e.into_inner()).alerts_raised += 1;
     }
 
     /// Increment blocks-processed counter.
     pub fn inc_blocks(&self) {
-        self.stats.lock().unwrap().blocks_processed += 1;
+        self.stats.lock().unwrap_or_else(|e| e.into_inner()).blocks_processed += 1;
     }
 }
 
@@ -81,7 +84,33 @@ pub fn build_router_with_dashboard(state: Arc<AppState>, dashboard_dir: &str) ->
         .route("/api/stats", get(handlers::get_stats))
         .route("/ws", get(ws::ws_handler))
         .nest_service("/dashboard", ServeDir::new(dashboard_dir))
-        .layer(CorsLayer::permissive())
+        // ── Security layers ──────────────────────────────────────────
+        // CORS: allow same-origin + localhost only (override via env)
+        .layer(CorsLayer::new()
+            .allow_origin(AllowOrigin::predicate(|origin: &HeaderValue, _| {
+                let o = origin.to_str().unwrap_or("");
+                o.starts_with("http://localhost") || o.starts_with("http://127.0.0.1")
+            }))
+            .allow_methods([http::Method::GET]))
+        // Security headers
+        .layer(SetResponseHeaderLayer::overriding(
+            http::header::X_CONTENT_TYPE_OPTIONS,
+            HeaderValue::from_static("nosniff"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            http::header::X_FRAME_OPTIONS,
+            HeaderValue::from_static("DENY"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            http::header::HeaderName::from_static("x-xss-protection"),
+            HeaderValue::from_static("1; mode=block"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            http::header::HeaderName::from_static("referrer-policy"),
+            HeaderValue::from_static("strict-origin-when-cross-origin"),
+        ))
+        // Request size limit (1 MiB)
+        .layer(DefaultBodyLimit::max(1_048_576))
         .layer(TraceLayer::new_for_http())
         .with_state(state)
 }

@@ -44,10 +44,14 @@ pub struct WebhookChannel {
 
 impl WebhookChannel {
     pub fn new(url: String) -> Self {
-        Self {
-            url,
-            client: reqwest::Client::new(),
-        }
+        // Build a hardened HTTP client with timeout and redirect limits.
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .connect_timeout(std::time::Duration::from_secs(5))
+            .redirect(reqwest::redirect::Policy::limited(3))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
+        Self { url, client }
     }
 }
 

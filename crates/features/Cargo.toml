@@ -12,3 +12,12 @@ tracing = { workspace = true }
 serde = { workspace = true }
 chrono = { workspace = true }
 ndarray = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+rand = { workspace = true }
+rand_distr = { workspace = true }
+
+[[bench]]
+name = "features_bench"
+harness = false

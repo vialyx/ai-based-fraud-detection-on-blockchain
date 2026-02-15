@@ -1,6 +1,7 @@
 use extended_isolation_forest::{Forest, ForestOptions};
 use fraud_common::config::IsolationForestConfig;
 use fraud_common::types::{FeatureVector, ModelScore};
+use std::collections::VecDeque;
 use tracing::{debug, info};
 
 /// Number of numeric features extracted per transaction for the forest.
@@ -32,8 +33,8 @@ const FOREST_FEATURES: [&str; NUM_FEATURES] = [
 ///      periodically re-trains on the most recent buffer window.
 pub struct IsolationForestModel {
     config: IsolationForestConfig,
-    /// Ring-buffer of recent feature rows.
-    buffer: Vec<[f64; NUM_FEATURES]>,
+    /// Ring-buffer of recent feature rows (VecDeque for O(1) eviction).
+    buffer: VecDeque<[f64; NUM_FEATURES]>,
     /// The trained model, `None` during warm-up.
     forest: Option<Forest<f64, NUM_FEATURES>>,
     /// Total number of scored transactions since last training.
@@ -44,22 +45,23 @@ impl IsolationForestModel {
     pub fn new(config: &IsolationForestConfig) -> Self {
         Self {
             config: config.clone(),
-            buffer: Vec::with_capacity(config.min_training_samples),
+            buffer: VecDeque::with_capacity(config.min_training_samples),
             forest: None,
             scored_since_train: 0,
         }
     }
 
     /// Extract the fixed-width numeric row from a `FeatureVector`.
+    /// Uses a HashMap index for O(1) per-feature lookup.
     fn extract_row(fv: &FeatureVector) -> [f64; NUM_FEATURES] {
+        let index: std::collections::HashMap<&str, f64> = fv
+            .features
+            .iter()
+            .map(|f| (f.name.as_str(), f.value))
+            .collect();
         let mut row = [0.0_f64; NUM_FEATURES];
         for (i, name) in FOREST_FEATURES.iter().enumerate() {
-            row[i] = fv
-                .features
-                .iter()
-                .find(|f| f.name == *name)
-                .map(|f| f.value)
-                .unwrap_or(0.0);
+            row[i] = index.get(name).copied().unwrap_or(0.0);
         }
         row
     }
@@ -73,7 +75,9 @@ impl IsolationForestModel {
             extension_level: 1,
         };
 
-        match Forest::from_slice(self.buffer.as_slice(), &options) {
+        // make_contiguous ensures we can pass a single slice.
+        let data = self.buffer.make_contiguous();
+        match Forest::from_slice(data, &options) {
             Ok(forest) => {
                 info!(
                     samples = self.buffer.len(),
@@ -96,9 +100,9 @@ impl IsolationForestModel {
         // Always add to training buffer (ring-buffer capped at 2× sample_size)
         let cap = self.config.sample_size * 2;
         if self.buffer.len() >= cap {
-            self.buffer.remove(0);
+            self.buffer.pop_front();
         }
-        self.buffer.push(row);
+        self.buffer.push_back(row);
 
         // Train on first opportunity, then periodically
         let should_train = (self.forest.is_none()

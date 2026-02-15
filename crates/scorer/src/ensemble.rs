@@ -66,6 +66,9 @@ impl EnsembleScorer {
             0.0
         };
 
+        // Security: clamp to [0,1] and guard against NaN/Inf
+        let weighted_score = fraud_common::security::clamp_score(weighted_score);
+
         let risk_level = risk_from_score(weighted_score);
 
         FraudScore {

@@ -1,4 +1,5 @@
 use fraud_common::types::{FeatureVector, ModelScore};
+use std::collections::HashMap;
 
 /// Hard-coded heuristic rules that flag obviously suspicious patterns.
 pub struct RuleEngine {
@@ -19,11 +20,18 @@ impl RuleEngine {
 
     /// Returns a score in [0, 1] plus the list of triggered rule names.
     pub fn evaluate(&self, fv: &FeatureVector) -> (ModelScore, Vec<String>) {
+        // Build an index once for O(1) feature lookups across all rules.
+        let index: HashMap<&str, f64> = fv
+            .features
+            .iter()
+            .map(|f| (f.name.as_str(), f.value))
+            .collect();
+
         let mut triggered = Vec::new();
         let mut total_severity = 0.0;
 
         for rule in &self.rules {
-            if let Some(severity) = rule.check(fv) {
+            if let Some(severity) = rule.check(&index) {
                 triggered.push(rule.name().to_string());
                 total_severity += severity;
             }
@@ -55,12 +63,12 @@ impl Default for RuleEngine {
 trait Rule {
     /// Human-readable name for the alert.
     fn name(&self) -> &str;
-    /// Check the feature vector; return `Some(severity)` if triggered.
-    fn check(&self, fv: &FeatureVector) -> Option<f64>;
+    /// Check the feature index; return `Some(severity)` if triggered.
+    fn check(&self, features: &HashMap<&str, f64>) -> Option<f64>;
 }
 
-fn feature_value(fv: &FeatureVector, name: &str) -> Option<f64> {
-    fv.features.iter().find(|f| f.name == name).map(|f| f.value)
+fn feature_value<'a>(features: &'a HashMap<&str, f64>, name: &str) -> Option<f64> {
+    features.get(name).copied()
 }
 
 // ---- Concrete rules ----
@@ -74,8 +82,8 @@ impl Rule for HighValueRule {
         "high_value_transfer"
     }
 
-    fn check(&self, fv: &FeatureVector) -> Option<f64> {
-        let val = feature_value(fv, "value_eth")?;
+    fn check(&self, features: &HashMap<&str, f64>) -> Option<f64> {
+        let val = feature_value(features, "value_eth")?;
         if val >= self.threshold_eth {
             Some(0.8)
         } else {
@@ -93,9 +101,9 @@ impl Rule for FirstTxHighValueRule {
         "first_tx_high_value"
     }
 
-    fn check(&self, fv: &FeatureVector) -> Option<f64> {
-        let is_first = feature_value(fv, "is_first_tx")?;
-        let val = feature_value(fv, "value_eth")?;
+    fn check(&self, features: &HashMap<&str, f64>) -> Option<f64> {
+        let is_first = feature_value(features, "is_first_tx")?;
+        let val = feature_value(features, "value_eth")?;
         if is_first > 0.5 && val >= self.threshold_eth {
             Some(0.9)
         } else {
@@ -111,8 +119,8 @@ impl Rule for ContractCreationRule {
         "contract_creation"
     }
 
-    fn check(&self, fv: &FeatureVector) -> Option<f64> {
-        let v = feature_value(fv, "is_contract_creation")?;
+    fn check(&self, features: &HashMap<&str, f64>) -> Option<f64> {
+        let v = feature_value(features, "is_contract_creation")?;
         if v > 0.5 {
             Some(0.3) // informational, not necessarily malicious
         } else {
@@ -130,8 +138,8 @@ impl Rule for HighFanOutRule {
         "high_fan_out"
     }
 
-    fn check(&self, fv: &FeatureVector) -> Option<f64> {
-        let ratio = feature_value(fv, "sender_fan_out_ratio")?;
+    fn check(&self, features: &HashMap<&str, f64>) -> Option<f64> {
+        let ratio = feature_value(features, "sender_fan_out_ratio")?;
         if ratio >= self.threshold {
             Some(0.6)
         } else {

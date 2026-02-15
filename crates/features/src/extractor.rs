@@ -31,8 +31,8 @@ impl FeatureExtractor {
 
     /// Extract features for a single transaction.
     pub fn extract(&mut self, tx: &Transaction) -> FeatureVector {
-        // Update rolling statistics
-        let value_eth = tx.value as f64 / 1e18;
+        // Update rolling statistics (with overflow/NaN guards)
+        let value_eth = fraud_common::security::safe_f64(tx.value as f64 / 1e18, 0.0);
         self.value_stats.push(value_eth);
         let gas = tx.gas_used as f64;
         self.gas_stats.push(gas);

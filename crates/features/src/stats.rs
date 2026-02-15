@@ -1,34 +1,43 @@
+use std::collections::VecDeque;
+
 /// Rolling statistics for a numeric series.
 ///
 /// Keeps a fixed-size window and computes mean, standard deviation, z-score,
 /// min, and max incrementally.
 #[derive(Debug, Clone)]
 pub struct RollingStats {
-    window: Vec<f64>,
+    window: VecDeque<f64>,
     capacity: usize,
+    /// Running sum for O(1) mean calculation.
+    running_sum: f64,
 }
 
 impl RollingStats {
     pub fn new(capacity: usize) -> Self {
         Self {
-            window: Vec::with_capacity(capacity),
+            window: VecDeque::with_capacity(capacity),
             capacity,
+            running_sum: 0.0,
         }
     }
 
     /// Push a new observation, evicting the oldest if at capacity.
+    /// O(1) amortised thanks to VecDeque.
     pub fn push(&mut self, value: f64) {
         if self.window.len() == self.capacity {
-            self.window.remove(0);
+            if let Some(old) = self.window.pop_front() {
+                self.running_sum -= old;
+            }
         }
-        self.window.push(value);
+        self.running_sum += value;
+        self.window.push_back(value);
     }
 
     pub fn mean(&self) -> f64 {
         if self.window.is_empty() {
             return 0.0;
         }
-        self.window.iter().sum::<f64>() / self.window.len() as f64
+        self.running_sum / self.window.len() as f64
     }
 
     pub fn std_dev(&self) -> f64 {
@@ -47,18 +56,18 @@ impl RollingStats {
         if sd == 0.0 {
             return 0.0;
         }
-        let last = self.window.last().copied().unwrap_or(0.0);
+        let last = self.window.back().copied().unwrap_or(0.0);
         (last - self.mean()) / sd
     }
 
     pub fn min(&self) -> f64 {
-        self.window.iter().cloned().fold(f64::INFINITY, f64::min)
+        self.window.iter().copied().fold(f64::INFINITY, f64::min)
     }
 
     pub fn max(&self) -> f64 {
         self.window
             .iter()
-            .cloned()
+            .copied()
             .fold(f64::NEG_INFINITY, f64::max)
     }
 

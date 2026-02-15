@@ -14,3 +14,12 @@ chrono = { workspace = true }
 uuid = { workspace = true }
 ndarray = { workspace = true }
 extended-isolation-forest = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+rand = { workspace = true }
+rand_distr = { workspace = true }
+
+[[bench]]
+name = "scorer_bench"
+harness = false
