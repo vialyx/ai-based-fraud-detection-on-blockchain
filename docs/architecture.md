@@ -100,9 +100,34 @@ all crates.
 
 ## Configuration
 All settings live in `config/default.toml` and are parsed at startup via the
-`AppConfig` struct.
+`AppConfig` struct. All configuration values are validated on load via
+`AppConfig::validate()` — invalid buffer sizes, thresholds, or webhook URLs are
+rejected before the pipeline starts.
 
-## Milestones (Weeks 21–24)
+## Security Layer (`crates/common/src/security.rs`)
+
+A dedicated security module provides cross-cutting protections:
+
+| Protection | Description |
+|------------|-------------|
+| Input validation | Hex strings, string lengths, score bounds, port ranges |
+| SSRF protection | Webhook URLs rejected for private/internal IP ranges |
+| NaN/∞ guards | `safe_f64()`, `clamp_score()`, `safe_u128_to_f64()` |
+| API hardening | Restricted CORS, security headers, 1 MiB body limit |
+| Webhook hardening | 10 s timeout, 5 s connect timeout, max 3 redirects |
+| Mutex safety | Poison recovery on all shared-state locks |
+| Config validation | All settings validated on load |
+
+## Performance
+
+See [BENCHMARKS.md](BENCHMARKS.md) for detailed Criterion benchmark results.
+
+Key numbers:
+- **12.5 µs** per-transaction scoring latency
+- **< 0.25%** of Ethereum's 12-second block time budget consumed
+- O(1) rolling statistics and feature lookups via VecDeque + HashMap
+
+## Milestones (Weeks 21–25)
 
 | Week | Deliverable | Status |
 |------|-------------|--------|
@@ -110,3 +135,5 @@ All settings live in `config/default.toml` and are parsed at startup via the
 | 22   | Real Isolation Forest (`extended-isolation-forest`); receipt-level gas; SQLite persistence | ✅ Done |
 | 23   | Historical replay mode; back-test against labeled fraud datasets; precision/recall/F1/ROC-AUC | ✅ Done |
 | 24   | Dashboard frontend (HTML+JS+CSS); Docker Compose; README polish | ✅ Done |
+| 25   | Criterion benchmarks, hot-path optimizations, security audit & hardening, portfolio finalization | ✅ Done |
+

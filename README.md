@@ -23,6 +23,8 @@
 | **Dashboard** | Dark-themed HTML/JS/CSS dashboard with live WebSocket feed, auto-refreshing tables |
 | **SQLite Persistence** | Fraud scores & alerts stored via `rusqlite` with WAL mode |
 | **Historical Replay** | Back-test against labeled CSV datasets with precision/recall/F1/ROC-AUC metrics |
+| **Security** | Input validation, SSRF protection, NaN guards, CORS policy, security headers, body limits |
+| **Benchmarks** | Criterion micro-benchmarks for features, scorer, and storage hot paths |
 | **Docker** | Multi-stage Dockerfile + Docker Compose for one-command deployment |
 
 ---
@@ -217,24 +219,27 @@ wscat -c ws://localhost:3000/ws
 ## 🧪 Testing
 
 ```bash
-# Run all 106 tests
+# Run all 124 tests
 cargo test --workspace
 
 # Specific crate
 cargo test -p fraud-replay
 cargo test -p fraud-scorer
+
+# Run criterion benchmarks
+cargo bench --workspace
 ```
 
 | Crate | Tests |
 |-------|-------|
-| fraud-common | 13 |
+| fraud-common | 31 |
 | fraud-features | 18 |
 | fraud-scorer | 25 |
 | fraud-alerts | 6 |
 | fraud-api | 10 |
 | fraud-storage | 9 |
 | fraud-replay | 25 |
-| **Total** | **106** |
+| **Total** | **124** |
 
 ---
 
@@ -245,7 +250,7 @@ cargo test -p fraud-scorer
 │   ├── main.rs                # Pipeline orchestrator
 │   └── bin/backtest.rs        # Back-test CLI binary
 ├── crates/
-│   ├── common/                # Shared types, config, errors
+│   ├── common/                # Shared types, config, errors, security module
 │   ├── indexer/               # Ethereum RPC block indexer (Alloy)
 │   ├── features/              # Feature extraction (16 features/tx)
 │   ├── scorer/                # Ensemble scorer (IF + statistical + rules)
@@ -293,7 +298,44 @@ cargo test -p fraud-scorer
 
 ---
 
-## 🔧 Tech Stack
+## �️ Security Hardening
+
+| Layer | Protection |
+|-------|------------|
+| **Input Validation** | Hex strings, string lengths, score bounds, port ranges |
+| **SSRF Protection** | Webhook URLs blocked for private/internal IP ranges (10.x, 172.16–31.x, 192.168.x, 169.254.x) |
+| **NaN/∞ Guards** | `safe_f64()`, `clamp_score()`, `safe_u128_to_f64()` prevent floating-point corruption |
+| **API Hardening** | Restricted CORS (localhost only), security headers (X-Content-Type-Options, X-Frame-Options, X-XSS-Protection, Referrer-Policy) |
+| **Request Limits** | 1 MiB max request body, 500 items per API page |
+| **Webhook Hardening** | 10 s timeout, 5 s connect timeout, max 3 redirects |
+| **Mutex Safety** | Poison recovery on all shared-state locks |
+| **Config Validation** | All settings validated on load (buffer sizes, intervals, thresholds, model params) |
+
+See [`crates/common/src/security.rs`](crates/common/src/security.rs) for the full security module.
+
+---
+
+## ⚡ Benchmarks (Criterion)
+
+```bash
+cargo bench --workspace
+```
+
+| Benchmark | Latency |
+|-----------|----------|
+| `rolling_stats_push` (64–1024 window) | ~4.5–5.0 ns |
+| `rolling_stats_z_score` (64–1024) | 14 ns – 568 ns |
+| `rule_engine_evaluate` | ~383 ns |
+| `ensemble_score` (warmup / trained) | ~12.5 µs |
+| `block_batch_scoring` (50–200 txs) | 71 µs – 6.3 ms |
+| `storage_insert` (score / alert) | ~103–108 µs |
+| `storage_query` (10–100 rows) | 14 µs – 790 µs |
+
+> Measured on Apple Silicon. HTML reports available in `target/criterion/`.
+
+---
+
+## �🔧 Tech Stack
 
 | Component | Technology |
 |-----------|-----------|
@@ -307,6 +349,8 @@ cargo test -p fraud-scorer
 | Serialization | serde + serde_json |
 | Configuration | TOML |
 | Logging | tracing + tracing-subscriber |
+| Benchmarks | Criterion v0.5 (HTML reports) |
+| Security | Custom validation + SSRF protection module |
 | Containerization | Docker + Docker Compose |
 
 ---
@@ -317,6 +361,7 @@ cargo test -p fraud-scorer
 - [x] Week 22 – Real Isolation Forest (`extended-isolation-forest`), receipt-level gas, SQLite persistence
 - [x] Week 23 – Historical replay, back-testing, precision/recall/F1/ROC-AUC metrics
 - [x] Week 24 – Dashboard frontend, Docker Compose, README polish
+- [x] Week 25 – Criterion benchmarks, hot-path optimizations (VecDeque, HashMap), security audit & hardening, portfolio finalization
 
 ---
 
