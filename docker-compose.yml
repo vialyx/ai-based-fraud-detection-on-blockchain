@@ -1,0 +1,22 @@
+services:
+  fraud-detector:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fraud-detector
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data                 # Persist SQLite database
+      - ./config:/app/config:ro          # Mount config (read-only)
+    environment:
+      RUST_LOG: "info"
+      # Override RPC URL via env if needed:
+      # RPC_URL: "https://eth.llamarpc.com"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

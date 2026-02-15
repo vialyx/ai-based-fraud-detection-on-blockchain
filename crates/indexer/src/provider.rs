@@ -47,6 +47,7 @@ impl RpcProvider {
         let block = self
             .provider
             .get_block_by_number(BlockNumberOrTag::Number(block_number))
+            .full()
             .await
             .map_err(|e| Error::Indexer(format!("failed to fetch block {block_number}: {e}")))?;
 
@@ -64,17 +65,20 @@ impl RpcProvider {
             base_fee_per_gas: block.header.base_fee_per_gas.map(|v| v as u128),
         };
 
-        // Fetch all receipts for the block in one call when available,
-        // falling back to per-tx receipt fetches.
-        let receipts = self
+        // Fetch all receipts for the block in one call when available.
+        // Many free RPC endpoints do not support `eth_getBlockReceipts`,
+        // so we gracefully fall back to block-level gas_used.
+        let receipts = match self
             .provider
             .get_block_receipts(BlockId::Number(BlockNumberOrTag::Number(block_number)))
             .await
-            .map_err(|e| {
-                Error::Indexer(format!(
-                    "failed to fetch receipts for block {block_number}: {e}"
-                ))
-            })?;
+        {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::debug!(block = block_number, error = %e, "receipts unavailable, using block-level gas");
+                None
+            }
+        };
 
         let transactions: Vec<Transaction> = block
             .transactions

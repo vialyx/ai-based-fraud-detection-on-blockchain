@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>🔍 Fraud Detection Dashboard</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <h1>🔍 AI-Based Fraud Detection</h1>
+      <div class="connection-status" id="ws-status">
+        <span class="dot dot-disconnected"></span>
+        <span id="ws-label">Disconnected</span>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- ── Stats Cards ───────────────────────────────────────────── -->
+    <section class="stats-row" id="stats-section">
+      <div class="card stat-card">
+        <div class="stat-icon">⛓️</div>
+        <div class="stat-body">
+          <div class="stat-value" id="stat-blocks">0</div>
+          <div class="stat-label">Blocks Processed</div>
+        </div>
+      </div>
+      <div class="card stat-card">
+        <div class="stat-icon">📊</div>
+        <div class="stat-body">
+          <div class="stat-value" id="stat-txs">0</div>
+          <div class="stat-label">Transactions Scored</div>
+        </div>
+      </div>
+      <div class="card stat-card">
+        <div class="stat-icon">🚨</div>
+        <div class="stat-body">
+          <div class="stat-value" id="stat-alerts">0</div>
+          <div class="stat-label">Alerts Raised</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Live Alert Feed ───────────────────────────────────────── -->
+    <section class="card" id="live-section">
+      <h2>🔴 Live Alert Feed</h2>
+      <p class="hint">Real-time alerts via WebSocket — newest first.</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Tx Hash</th>
+              <th>Score</th>
+              <th>Risk</th>
+              <th>Rules</th>
+            </tr>
+          </thead>
+          <tbody id="live-alerts-body">
+            <tr class="empty-row"><td colspan="5">Waiting for alerts …</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ── Recent Scores ─────────────────────────────────────────── -->
+    <section class="card">
+      <h2>📈 Recent Fraud Scores</h2>
+      <p class="hint">Last 50 scored transactions – auto-refreshes every 5 s.</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Tx Hash</th>
+              <th>Block</th>
+              <th>Score</th>
+              <th>Risk</th>
+              <th>Rules</th>
+              <th>Scored At</th>
+            </tr>
+          </thead>
+          <tbody id="scores-body">
+            <tr class="empty-row"><td colspan="6">Loading …</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ── Recent Alerts ─────────────────────────────────────────── -->
+    <section class="card">
+      <h2>🚨 Recent Alerts</h2>
+      <p class="hint">Last 50 persisted alerts – auto-refreshes every 5 s.</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Tx Hash</th>
+              <th>From</th>
+              <th>To</th>
+              <th>Value (wei)</th>
+              <th>Score</th>
+              <th>Risk</th>
+              <th>Created</th>
+            </tr>
+          </thead>
+          <tbody id="alerts-body">
+            <tr class="empty-row"><td colspan="7">Loading …</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <p>AI-Based Fraud Detection on Blockchain &mdash; Capstone Project &copy; 2026</p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

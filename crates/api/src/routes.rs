@@ -6,6 +6,7 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;
 use tower_http::cors::CorsLayer;
+use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 use tracing::info;
 
@@ -68,12 +69,18 @@ impl AppState {
 
 /// Build the Axum router with all API routes.
 pub fn build_router(state: Arc<AppState>) -> Router {
+    build_router_with_dashboard(state, "dashboard")
+}
+
+/// Build the Axum router with a custom dashboard directory.
+pub fn build_router_with_dashboard(state: Arc<AppState>, dashboard_dir: &str) -> Router {
     Router::new()
         .route("/health", get(handlers::health))
         .route("/api/scores", get(handlers::get_scores))
         .route("/api/alerts", get(handlers::get_alerts))
         .route("/api/stats", get(handlers::get_stats))
         .route("/ws", get(ws::ws_handler))
+        .nest_service("/dashboard", ServeDir::new(dashboard_dir))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(state)
